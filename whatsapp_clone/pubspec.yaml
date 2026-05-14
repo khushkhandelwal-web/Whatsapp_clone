@@ -1,0 +1,38 @@
+name: whatsapp_clone
+description: WhatsApp Clone - Full Media Support
+
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Already working
+  firebase_core: ^3.1.0
+  firebase_auth: ^5.1.0
+  cloud_firestore: ^5.1.0
+
+  # Media - NEW
+  firebase_storage: ^12.1.0
+  image_picker: ^1.1.2
+  file_picker: ^8.0.7
+  audioplayers: ^6.1.0
+  record: ^5.1.2
+  video_player: ^2.8.6
+  url_launcher: ^6.3.0
+  cached_network_image: ^3.3.1
+  uuid: ^4.4.0
+
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

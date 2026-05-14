@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "870793547651",
+    "firebase_url": "https://second-fa840-default-rtdb.firebaseio.com",
+    "project_id": "second-fa840",
+    "storage_bucket": "second-fa840.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:870793547651:android:abeb673e68cbc9ce0470b6",
+        "android_client_info": {
+          "package_name": "com.example.whatsapp_clone"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "870793547651-grlc5n97hf5cv88uljfcc29bq5ibf05e.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEMd2ZDYnxqHjw9hgeRv13gygEkcXUKKc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "870793547651-grlc5n97hf5cv88uljfcc29bq5ibf05e.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "870793547651-58llvf62acmghl88ndl71mdqp628jodm.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.whatsappClone"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
