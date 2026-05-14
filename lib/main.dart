@@ -13,7 +13,6 @@ Future<void> main() async {
 }
 
 
-// CONSTANTS
 
 const kGreen  = Color(0xff075E54);
 const kGreen2 = Color(0xff25D366);
@@ -22,7 +21,6 @@ const kBgChat    = Color(0xffECE5DD);
 
 const kReactions = ['❤️','😂','😮','😢','🙏','👍'];
 
-// ENUMS & MODEL
 
 enum MsgType   { text, image, audio, video, file, deleted }
 enum MsgStatus { sent, delivered, read }
@@ -47,9 +45,7 @@ class Msg {
   final bool     isRead;
   final Timestamp sentAt;
   final Timestamp? deliveredAt, readAt, editedAt;
-  // Reply
   final String? replyToId, replyToText, replyToSender;
-  // Reactions: {'❤️': ['uid1','uid2'], ...}
   final Map<String, List<String>> reactions;
   final bool isEdited;
 
@@ -143,7 +139,7 @@ class FS {
     return ref.id;
   }
 
-  // ── Edit message 
+  
   static Future<void> editMsg(String cid, String msgId, String newText) async {
     await _db.collection('chats').doc(cid)
         .collection('messages').doc(msgId).update({
@@ -153,7 +149,7 @@ class FS {
     });
   }
 
-  // ── Delete for everyone 
+ 
   static Future<void> deleteForEveryone(String cid, String msgId) async {
     await _db.collection('chats').doc(cid)
         .collection('messages').doc(msgId).update({
@@ -162,7 +158,7 @@ class FS {
     });
   }
 
-  // ── Emoji reaction 
+   
   static Future<void> toggleReaction(
       String cid, String msgId, String emoji, Msg msg) async {
     final uid    = me.uid;
@@ -184,7 +180,7 @@ class FS {
         .collection('messages').doc(msgId).update({'reactions': cur});
   }
 
-  // ── Mark read 
+ 
   static Future<void> markRead(String cid, String senderUid) async {
     final snap = await _db.collection('chats').doc(cid)
         .collection('messages')
@@ -198,14 +194,13 @@ class FS {
     await batch.commit();
   }
 
-  // ── Unread count
   static Stream<int> unreadCount(String cid, String myUid) =>
       _db.collection('chats').doc(cid).collection('messages')
          .where('receiverId', isEqualTo: myUid)
          .where('isRead', isEqualTo: false)
          .snapshots().map((s) => s.docs.length);
 
-  // 
+  
   static Future<void> setPresence({
     bool online = true,
     bool typing = false,
@@ -225,7 +220,7 @@ class FS {
   static Stream<DocumentSnapshot> presenceStream(String uid) =>
       _db.collection('presence').doc(uid).snapshots();
 
-  // ── Users
+
   static Stream<QuerySnapshot> users() =>
       _db.collection('users').snapshots();
 
@@ -239,8 +234,6 @@ class FS {
   }
 }
 
-
-// APP
 
 class App extends StatelessWidget {
   const App({super.key});
@@ -447,8 +440,6 @@ class _AccountPage extends StatelessWidget {
   }
 }
 
-
-// FEATURE 9: CHAT SEARCH SCREEN
 class ChatSearchScreen extends StatefulWidget {
   const ChatSearchScreen({super.key});
   @override State<ChatSearchScreen> createState() => _ChatSearchState();
@@ -525,8 +516,6 @@ class _ChatSearchState extends State<ChatSearchScreen> {
   );
 }
 
-
-// CHATS PAGE — unread badges + last message + presence subtitle
 
 class ChatsPage extends StatelessWidget {
   const ChatsPage({super.key});
@@ -691,8 +680,7 @@ class _ChatTile extends StatelessWidget {
   }
 }
 
-// 
-// CHAT SCREEN
+
 class ChatScreen extends StatefulWidget {
   final String rid, rname;
   const ChatScreen({super.key, required this.rid, required this.rname});
@@ -704,18 +692,18 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   final _scroll = ScrollController();
   final _me     = FirebaseAuth.instance.currentUser!;
 
-  // Reply state
+
   Msg? _replyMsg;
-  // Edit state
+
   Msg? _editMsg;
-  // Search in chat
+ 
   bool _searching = false;
   final _searchCtrl = TextEditingController();
   String _searchQ   = '';
 
   String get _cid => FS.chatId(_me.uid, widget.rid);
 
-  // Typing timer
+
   bool _isTyping = false;
 
   @override void initState() {
@@ -732,7 +720,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     _ctrl.dispose();
     _searchCtrl.dispose();
     _scroll.dispose();
-    // Clear typing when leaving
+    
     FS.setPresence(online: true, typing: false, typingIn: '');
     super.dispose();
   }
@@ -756,7 +744,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
-  // ── FEATURE 1/10: Typing indicator 
+ 
   void _onTyping() {
     final hasText = _ctrl.text.trim().isNotEmpty;
     if (hasText && !_isTyping) {
@@ -768,13 +756,12 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  // ── Send / Edit 
+
   Future<void> _sendOrEdit() async {
     final t = _ctrl.text.trim();
     if (t.isEmpty) return;
 
     if (_editMsg != null) {
-      // FEATURE 7: Edit sent message
       await FS.editMsg(_cid, _editMsg!.id, t);
       setState(() { _editMsg = null; });
     } else {
@@ -794,17 +781,16 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     FS.setPresence(online: true, typing: false, typingIn: '');
   }
 
-  // ── FEATURE 6: Delete for everyone 
+
   Future<void> _deleteForEveryone(Msg msg) async {
     await FS.deleteForEveryone(_cid, msg.id);
   }
 
-  // ── FEATURE 5: Emoji reaction 
   Future<void> _react(Msg msg, String emoji) async {
     await FS.toggleReaction(_cid, msg.id, emoji, msg);
   }
 
-  // Start editing
+
   void _startEdit(Msg msg) {
     setState(() {
       _editMsg  = msg;
@@ -815,7 +801,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         TextPosition(offset: _ctrl.text.length));
   }
 
-  // Start reply
+ 
   void _startReply(Msg msg) {
     setState(() {
       _replyMsg = msg;
@@ -900,7 +886,6 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         ]);
       },
     ),
-    // ── FEATURE 9: In-chat search toggle 
     actions: [
       IconButton(
         icon: Icon(_searching ? Icons.close : Icons.search, color: Colors.white),
@@ -912,9 +897,9 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     ],
   );
 
-  // ── MESSAGE LIST 
+
   Widget _buildMsgList() => Column(children: [
-    // In-chat search bar
+   
     if (_searching) Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -939,7 +924,6 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
         _markRead();
         var docs = snap.data!.docs;
-        // Filter by search
         if (_searchQ.isNotEmpty) {
           docs = docs.where((d) {
             final data = d.data() as Map<String, dynamic>;
@@ -982,7 +966,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _diffDay(DateTime a, DateTime b) =>
       a.day != b.day || a.month != b.month || a.year != b.year;
 
-  // ── INPUT BAR 
+
   Widget _buildInput() => Container(
     color: const Color(0xffF0F0F0),
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -1013,7 +997,6 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   );
 }
 
-// REPLY PREVIEW BAR
 
 class _ReplyPreview extends StatelessWidget {
   final Msg msg; final String rname; final VoidCallback onCancel;
@@ -1042,9 +1025,6 @@ class _ReplyPreview extends StatelessWidget {
   }
 }
 
-
-// EDIT PREVIEW BAR
-
 class _EditPreview extends StatelessWidget {
   final VoidCallback onCancel;
   const _EditPreview({required this.onCancel});
@@ -1061,9 +1041,6 @@ class _EditPreview extends StatelessWidget {
   );
 }
 
-// 
-// BUBBLE WRAPPER — long press menu + swipe to reply
-// 
 class _BubbleWrapper extends StatelessWidget {
   final Msg      msg;
   final bool     isMe;
@@ -1094,17 +1071,17 @@ class _BubbleWrapper extends StatelessWidget {
           ),
           const Divider(height: 0),
         ],
-        // ── FEATURE 4: Reply ────────────────────────────────────
+       
         if (msg.type != MsgType.deleted)
           ListTile(leading: const Icon(Icons.reply),
               title: const Text('Reply'),
               onTap: () { Navigator.pop(ctx); onReply(); }),
-        // ── FEATURE 7: Edit (only sender, only text) ────────────
+        
         if (isMe && msg.type == MsgType.text)
           ListTile(leading: const Icon(Icons.edit_outlined),
               title: const Text('Edit'),
               onTap: () { Navigator.pop(ctx); onEdit(); }),
-        // ── Copy text ───────────────────────────────────────────
+       
         if (msg.type == MsgType.text)
           ListTile(leading: const Icon(Icons.copy),
               title: const Text('Copy'),
@@ -1112,7 +1089,7 @@ class _BubbleWrapper extends StatelessWidget {
                 Navigator.pop(ctx);
                 Clipboard.setData(ClipboardData(text: msg.text));
               }),
-        // ── FEATURE 6: Delete for everyone ─────────────────────
+        
         if (isMe && msg.type != MsgType.deleted)
           ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red),
               title: const Text('Delete for Everyone',
@@ -1138,9 +1115,7 @@ class _BubbleWrapper extends StatelessWidget {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// BUBBLE
-// ─────────────────────────────────────────────────────────────────
+
 class _Bubble extends StatelessWidget {
   final Msg msg; final bool isMe; final String meUid;
   const _Bubble({required this.msg, required this.isMe, required this.meUid});
@@ -1272,9 +1247,7 @@ class _Bubble extends StatelessWidget {
       '${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}';
 }
 
-// ─────────────────────────────────────────────────────────────────
-// REPLY QUOTE (inside bubble)
-// ──────────────----───────────────────
+
 class _ReplyQuote extends StatelessWidget {
   final String text, sender;
   const _ReplyQuote({required this.text, required this.sender});
@@ -1296,10 +1269,6 @@ class _ReplyQuote extends StatelessWidget {
     ]),
   );
 }
-
-// ────────────────────────────────────────────────────────────────
-// DATE SEPARATOR 
-// ─────────────────────────────────────────────────────────────────
 class _DateSep extends StatelessWidget {
   final DateTime date;
   const _DateSep({required this.date});
