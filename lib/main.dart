@@ -1,10 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════
-// KHUSH CHAT - Full Featured WhatsApp Clone
-// Features: Typing • Online/Last Seen • Blue Ticks • Reply •
-//           Emoji Reactions • Delete for Everyone • Edit Message •
-//           Push Notifications • Chat Search • User Presence
-// Only needs: firebase_core, firebase_auth, cloud_firestore
-// ═══════════════════════════════════════════════════════════════════
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,9 +12,9 @@ Future<void> main() async {
   runApp(const App());
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // CONSTANTS
-// ─────────────────────────────────────────────────────────────────
+
 const kGreen  = Color(0xff075E54);
 const kGreen2 = Color(0xff25D366);
 const kBubbleMe  = Color(0xffDCF8C6);
@@ -29,9 +22,8 @@ const kBgChat    = Color(0xffECE5DD);
 
 const kReactions = ['❤️','😂','😮','😢','🙏','👍'];
 
-// ─────────────────────────────────────────────────────────────────
 // ENUMS & MODEL
-// ─────────────────────────────────────────────────────────────────
+
 enum MsgType   { text, image, audio, video, file, deleted }
 enum MsgStatus { sent, delivered, read }
 
@@ -106,9 +98,8 @@ class Msg {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // FIREBASE SERVICE
-// ─────────────────────────────────────────────────────────────────
 class FS {
   static final _db = FirebaseFirestore.instance;
   static User get me => FirebaseAuth.instance.currentUser!;
@@ -152,7 +143,7 @@ class FS {
     return ref.id;
   }
 
-  // ── Edit message ──────────────────────────────────────────────
+  // ── Edit message 
   static Future<void> editMsg(String cid, String msgId, String newText) async {
     await _db.collection('chats').doc(cid)
         .collection('messages').doc(msgId).update({
@@ -162,7 +153,7 @@ class FS {
     });
   }
 
-  // ── Delete for everyone ────────────────────────────────────────
+  // ── Delete for everyone 
   static Future<void> deleteForEveryone(String cid, String msgId) async {
     await _db.collection('chats').doc(cid)
         .collection('messages').doc(msgId).update({
@@ -171,7 +162,7 @@ class FS {
     });
   }
 
-  // ── Emoji reaction ─────────────────────────────────────────────
+  // ── Emoji reaction 
   static Future<void> toggleReaction(
       String cid, String msgId, String emoji, Msg msg) async {
     final uid    = me.uid;
@@ -193,7 +184,7 @@ class FS {
         .collection('messages').doc(msgId).update({'reactions': cur});
   }
 
-  // ── Mark read ─────────────────────────────────────────────────
+  // ── Mark read 
   static Future<void> markRead(String cid, String senderUid) async {
     final snap = await _db.collection('chats').doc(cid)
         .collection('messages')
@@ -207,14 +198,14 @@ class FS {
     await batch.commit();
   }
 
-  // ── Unread count ──────────────────────────────────────────────
+  // ── Unread count
   static Stream<int> unreadCount(String cid, String myUid) =>
       _db.collection('chats').doc(cid).collection('messages')
          .where('receiverId', isEqualTo: myUid)
          .where('isRead', isEqualTo: false)
          .snapshots().map((s) => s.docs.length);
 
-  // ── Presence (online / last seen / typing / recording) ────────
+  // 
   static Future<void> setPresence({
     bool online = true,
     bool typing = false,
@@ -234,7 +225,7 @@ class FS {
   static Stream<DocumentSnapshot> presenceStream(String uid) =>
       _db.collection('presence').doc(uid).snapshots();
 
-  // ── Users ──────────────────────────────────────────────────────
+  // ── Users
   static Stream<QuerySnapshot> users() =>
       _db.collection('users').snapshots();
 
@@ -248,9 +239,9 @@ class FS {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // APP
-// ─────────────────────────────────────────────────────────────────
+
 class App extends StatelessWidget {
   const App({super.key});
   @override
@@ -271,9 +262,9 @@ class App extends StatelessWidget {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // LOGIN
-// ─────────────────────────────────────────────────────────────────
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override State<LoginScreen> createState() => _LoginState();
@@ -372,9 +363,9 @@ class _LoginState extends State<LoginScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // HOME
-// ─────────────────────────────────────────────────────────────────
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override State<HomeScreen> createState() => _HomeState();
@@ -456,9 +447,8 @@ class _AccountPage extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // FEATURE 9: CHAT SEARCH SCREEN
-// ─────────────────────────────────────────────────────────────────
 class ChatSearchScreen extends StatefulWidget {
   const ChatSearchScreen({super.key});
   @override State<ChatSearchScreen> createState() => _ChatSearchState();
@@ -535,9 +525,9 @@ class _ChatSearchState extends State<ChatSearchScreen> {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // CHATS PAGE — unread badges + last message + presence subtitle
-// ─────────────────────────────────────────────────────────────────
+
 class ChatsPage extends StatelessWidget {
   const ChatsPage({super.key});
   @override
@@ -616,7 +606,7 @@ class _ChatTile extends StatelessWidget {
           builder: (ctx, us) {
             final count = us.data ?? 0;
             final has   = count > 0;
-            // ── FEATURE 2/10: Online presence in tile ─────────
+            // ── FEATURE 2/10: 
             return StreamBuilder<DocumentSnapshot>(
               stream: FS.presenceStream(rid),
               builder: (ctx, presSnap) {
@@ -701,9 +691,8 @@ class _ChatTile extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// CHAT SCREEN — all 10 features
-// ─────────────────────────────────────────────────────────────────
+// 
+// CHAT SCREEN
 class ChatScreen extends StatefulWidget {
   final String rid, rname;
   const ChatScreen({super.key, required this.rid, required this.rname});
@@ -767,7 +756,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
-  // ── FEATURE 1/10: Typing indicator ────────────────────────────
+  // ── FEATURE 1/10: Typing indicator 
   void _onTyping() {
     final hasText = _ctrl.text.trim().isNotEmpty;
     if (hasText && !_isTyping) {
@@ -779,7 +768,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  // ── Send / Edit ────────────────────────────────────────────────
+  // ── Send / Edit 
   Future<void> _sendOrEdit() async {
     final t = _ctrl.text.trim();
     if (t.isEmpty) return;
@@ -805,12 +794,12 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     FS.setPresence(online: true, typing: false, typingIn: '');
   }
 
-  // ── FEATURE 6: Delete for everyone ────────────────────────────
+  // ── FEATURE 6: Delete for everyone 
   Future<void> _deleteForEveryone(Msg msg) async {
     await FS.deleteForEveryone(_cid, msg.id);
   }
 
-  // ── FEATURE 5: Emoji reaction ──────────────────────────────────
+  // ── FEATURE 5: Emoji reaction 
   Future<void> _react(Msg msg, String emoji) async {
     await FS.toggleReaction(_cid, msg.id, emoji, msg);
   }
@@ -848,7 +837,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     appBar: _buildAppBar(),
     body: Column(children: [
       Expanded(child: _buildMsgList()),
-      // ── FEATURE 4: Reply preview ─────────────────────────────
+      // ── FEATURE 4: Reply preview 
       if (_replyMsg != null) _ReplyPreview(
         msg: _replyMsg!,
         rname: widget.rname,
@@ -860,7 +849,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     ]),
   );
 
-  // ── APP BAR with online/typing status ─────────────────────────
+  // ── APP BAR with online/typing status 
   PreferredSizeWidget _buildAppBar() => AppBar(
     backgroundColor: kGreen,
     titleSpacing: 0,
@@ -911,7 +900,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         ]);
       },
     ),
-    // ── FEATURE 9: In-chat search toggle ─────────────────────────
+    // ── FEATURE 9: In-chat search toggle 
     actions: [
       IconButton(
         icon: Icon(_searching ? Icons.close : Icons.search, color: Colors.white),
@@ -923,7 +912,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     ],
   );
 
-  // ── MESSAGE LIST ───────────────────────────────────────────────
+  // ── MESSAGE LIST 
   Widget _buildMsgList() => Column(children: [
     // In-chat search bar
     if (_searching) Container(
@@ -993,7 +982,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _diffDay(DateTime a, DateTime b) =>
       a.day != b.day || a.month != b.month || a.year != b.year;
 
-  // ── INPUT BAR ──────────────────────────────────────────────────
+  // ── INPUT BAR 
   Widget _buildInput() => Container(
     color: const Color(0xffF0F0F0),
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -1024,9 +1013,8 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
 // REPLY PREVIEW BAR
-// ─────────────────────────────────────────────────────────────────
+
 class _ReplyPreview extends StatelessWidget {
   final Msg msg; final String rname; final VoidCallback onCancel;
   const _ReplyPreview({required this.msg, required this.rname, required this.onCancel});
@@ -1054,9 +1042,9 @@ class _ReplyPreview extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+
 // EDIT PREVIEW BAR
-// ─────────────────────────────────────────────────────────────────
+
 class _EditPreview extends StatelessWidget {
   final VoidCallback onCancel;
   const _EditPreview({required this.onCancel});
@@ -1073,9 +1061,9 @@ class _EditPreview extends StatelessWidget {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
+// 
 // BUBBLE WRAPPER — long press menu + swipe to reply
-// ─────────────────────────────────────────────────────────────────
+// 
 class _BubbleWrapper extends StatelessWidget {
   final Msg      msg;
   final bool     isMe;
@@ -1202,7 +1190,7 @@ class _Bubble extends StatelessWidget {
                         style: const TextStyle(fontSize: 10, color: Colors.grey)),
                     if (isMe) ...[
                       const SizedBox(width: 3),
-                      // ── FEATURE 3: Blue ticks ──────────────────
+                      // ── 
                       Icon(
                         msg.status == MsgStatus.read ? Icons.done_all :
                         msg.status == MsgStatus.delivered ? Icons.done_all : Icons.done,
@@ -1216,7 +1204,7 @@ class _Bubble extends StatelessWidget {
               ]),
             ),
           ),
-          // ── FEATURE 5: Reaction chips ─────────────────────────
+          // 
           if (msg.reactions.isNotEmpty)
             Padding(
               padding: EdgeInsets.only(
@@ -1286,7 +1274,7 @@ class _Bubble extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────
 // REPLY QUOTE (inside bubble)
-// ─────────────────────────────────────────────────────────────────
+// ──────────────----───────────────────
 class _ReplyQuote extends StatelessWidget {
   final String text, sender;
   const _ReplyQuote({required this.text, required this.sender});
@@ -1294,7 +1282,7 @@ class _ReplyQuote extends StatelessWidget {
     margin: const EdgeInsets.fromLTRB(8, 8, 8, 4),
     padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
     decoration: BoxDecoration(
-      color: Colors.black.withOpacity(0.06),
+      color: Colors.black.withOpacity(0.06), 
       borderRadius: BorderRadius.circular(8),
       border: const Border(left: BorderSide(color: kGreen, width: 3)),
     ),
@@ -1309,8 +1297,8 @@ class _ReplyQuote extends StatelessWidget {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// DATE SEPARATOR
+// ────────────────────────────────────────────────────────────────
+// DATE SEPARATOR 
 // ─────────────────────────────────────────────────────────────────
 class _DateSep extends StatelessWidget {
   final DateTime date;
@@ -1332,3 +1320,6 @@ class _DateSep extends StatelessWidget {
     ),
   );
 }
+
+
+
