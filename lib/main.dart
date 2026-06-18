@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -12,15 +11,55 @@ Future<void> main() async {
   runApp(const App());
 }
 
-
-
 const kGreen  = Color(0xff075E54);
 const kGreen2 = Color(0xff25D366);
 const kBubbleMe  = Color(0xffDCF8C6);
 const kBgChat    = Color(0xffECE5DD);
 
-const kReactions = ['❤️','😂','😮','😢','🙏','👍'];
+const kReactions = ['❤️','😂','😮','😢','🙏','👍' ,'😁'];
 
+enum DisappearTimer { off, h24, d7, d90 }
+
+extension DisappearTimerX on DisappearTimer {
+  String get label {
+    switch (this) {
+      case DisappearTimer.off: return 'Off';
+      case DisappearTimer.h24: return '24 hours';
+      case DisappearTimer.d7:  return '7 days';
+      case DisappearTimer.d90: return '90 days';
+    }
+  }
+
+  String get shortLabel {
+    switch (this) {
+      case DisappearTimer.off: return 'Off';
+      case DisappearTimer.h24: return '24h';
+      case DisappearTimer.d7:  return '7d';
+      case DisappearTimer.d90: return '90d';
+    }
+  }
+
+
+  Duration? get duration {
+    switch (this) {
+      case DisappearTimer.off: return null;
+      case DisappearTimer.h24: return const Duration(hours: 24);
+      case DisappearTimer.d7:  return const Duration(days: 7);
+      case DisappearTimer.d90: return const Duration(days: 90);
+    }
+  }
+
+  String get val => name;
+
+  static DisappearTimer fromString(String? s) {
+    switch (s) {
+      case 'h24': return DisappearTimer.h24;
+      case 'd7':  return DisappearTimer.d7;
+      case 'd90': return DisappearTimer.d90;
+      default:    return DisappearTimer.off;
+    }
+  }
+}
 
 enum MsgType   { text, image, audio, video, file, deleted }
 enum MsgStatus { sent, delivered, read }
@@ -45,9 +84,13 @@ class Msg {
   final bool     isRead;
   final Timestamp sentAt;
   final Timestamp? deliveredAt, readAt, editedAt;
+  // Reply
   final String? replyToId, replyToText, replyToSender;
+  // Reactions: {'❤️': ['uid1','uid2'], ...}
   final Map<String, List<String>> reactions;
   final bool isEdited;
+  // Disappearing messages
+  final Timestamp? expiresAt;
 
   const Msg({
     required this.id, required this.senderId, required this.receiverId,
@@ -58,6 +101,7 @@ class Msg {
     this.replyToId, this.replyToText, this.replyToSender,
     this.reactions = const {},
     this.isEdited = false,
+    this.expiresAt,
   });
 
   MsgStatus get status {
@@ -90,19 +134,17 @@ class Msg {
       replyToSender: d['replyToSender'] as String?,
       reactions:     reactions,
       isEdited:      d['isEdited']    as bool? ?? false,
+      expiresAt:     d['expiresAt']   as Timestamp?,
     );
   }
 }
 
-
-// FIREBASE SERVICE
 class FS {
   static final _db = FirebaseFirestore.instance;
   static User get me => FirebaseAuth.instance.currentUser!;
 
   static String chatId(String a, String b) => ([a, b]..sort()).join('_');
 
-  // ── Messages ──────────────────────────────────────────────────
   static Stream<QuerySnapshot> messages(String cid) =>
       _db.collection('chats').doc(cid).collection('messages')
          .orderBy('sentAt').snapshots();
@@ -116,6 +158,17 @@ class FS {
   }) async {
     final cid = chatId(me.uid, receiverId);
     final ref = _db.collection('chats').doc(cid).collection('messages').doc();
+
+    final chatDoc = await _db.collection('chats').doc(cid).get();
+    final timerStr = chatDoc.exists
+        ? (chatDoc.data() as Map<String, dynamic>)['disappearTimer'] as String?
+        : null;
+    final timer   = DisappearTimerX.fromString(timerStr);
+    final now     = DateTime.now();
+    final expires = timer.duration != null
+        ? Timestamp.fromDate(now.add(timer.duration!))
+        : null;
+
     await ref.set({
       'messageId':     ref.id,
       'senderId':      me.uid,
@@ -129,6 +182,7 @@ class FS {
         'replyToText':   replyToText,
         'replyToSender': replyToSender,
       },
+      if (expires   != null) 'expiresAt': expires,
       'reactions':     {},
       'isEdited':      false,
       'isRead':        false,
@@ -138,8 +192,34 @@ class FS {
     });
     return ref.id;
   }
+  static Future<void> setDisappearTimer(
+      String cid, DisappearTimer timer) async {
+    await _db.collection('chats').doc(cid).set({
+      'disappearTimer': timer.val,
+      'disappearTimerSetBy': me.uid,
+      'disappearTimerSetAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 
-  
+  static Stream<DocumentSnapshot> chatSettingsStream(String cid) =>
+      _db.collection('chats').doc(cid).snapshots();
+
+  static Future<int> purgeExpiredMessages(String cid) async {
+    final now  = Timestamp.now();
+    final snap = await _db
+        .collection('chats')
+        .doc(cid)
+        .collection('messages')
+        .where('expiresAt', isLessThanOrEqualTo: now)
+        .get();
+    if (snap.docs.isEmpty) return 0;
+    final batch = _db.batch();
+    for (final doc in snap.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+    return snap.docs.length;
+  }
   static Future<void> editMsg(String cid, String msgId, String newText) async {
     await _db.collection('chats').doc(cid)
         .collection('messages').doc(msgId).update({
@@ -148,8 +228,6 @@ class FS {
       'editedAt': FieldValue.serverTimestamp(),
     });
   }
-
- 
   static Future<void> deleteForEveryone(String cid, String msgId) async {
     await _db.collection('chats').doc(cid)
         .collection('messages').doc(msgId).update({
@@ -158,7 +236,6 @@ class FS {
     });
   }
 
-   
   static Future<void> toggleReaction(
       String cid, String msgId, String emoji, Msg msg) async {
     final uid    = me.uid;
@@ -179,8 +256,6 @@ class FS {
     await _db.collection('chats').doc(cid)
         .collection('messages').doc(msgId).update({'reactions': cur});
   }
-
- 
   static Future<void> markRead(String cid, String senderUid) async {
     final snap = await _db.collection('chats').doc(cid)
         .collection('messages')
@@ -193,14 +268,12 @@ class FS {
     }
     await batch.commit();
   }
-
   static Stream<int> unreadCount(String cid, String myUid) =>
       _db.collection('chats').doc(cid).collection('messages')
          .where('receiverId', isEqualTo: myUid)
          .where('isRead', isEqualTo: false)
          .snapshots().map((s) => s.docs.length);
 
-  
   static Future<void> setPresence({
     bool online = true,
     bool typing = false,
@@ -216,14 +289,10 @@ class FS {
       'lastSeen':  FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
-
   static Stream<DocumentSnapshot> presenceStream(String uid) =>
       _db.collection('presence').doc(uid).snapshots();
-
-
   static Stream<QuerySnapshot> users() =>
       _db.collection('users').snapshots();
-
   static Future<void> saveUser(User u) async {
     await _db.collection('users').doc(u.uid).set({
       'uid':   u.uid,
@@ -233,8 +302,6 @@ class FS {
     await setPresence(online: true);
   }
 }
-
-
 class App extends StatelessWidget {
   const App({super.key});
   @override
@@ -254,9 +321,6 @@ class App extends StatelessWidget {
     ),
   );
 }
-
-
-// LOGIN
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -356,9 +420,6 @@ class _LoginState extends State<LoginScreen> {
   }
 }
 
-
-// HOME
-
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override State<HomeScreen> createState() => _HomeState();
@@ -380,7 +441,6 @@ class _HomeState extends State<HomeScreen> with WidgetsBindingObserver {
   @override void didChangeAppLifecycleState(AppLifecycleState s) {
     FS.setPresence(online: s == AppLifecycleState.resumed);
   }
-
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -388,7 +448,7 @@ class _HomeState extends State<HomeScreen> with WidgetsBindingObserver {
       title: const Text('Khush Chat',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
       actions: [
-        // ── FEATURE 9: Chat Search ──────────────────────────────
+        
         IconButton(
           icon: const Icon(Icons.search, color: Colors.white),
           onPressed: () => Navigator.push(context,
@@ -516,7 +576,6 @@ class _ChatSearchState extends State<ChatSearchScreen> {
   );
 }
 
-
 class ChatsPage extends StatelessWidget {
   const ChatsPage({super.key});
   @override
@@ -595,7 +654,7 @@ class _ChatTile extends StatelessWidget {
           builder: (ctx, us) {
             final count = us.data ?? 0;
             final has   = count > 0;
-            // ── FEATURE 2/10: 
+            
             return StreamBuilder<DocumentSnapshot>(
               stream: FS.presenceStream(rid),
               builder: (ctx, presSnap) {
@@ -679,8 +738,6 @@ class _ChatTile extends StatelessWidget {
     );
   }
 }
-
-
 class ChatScreen extends StatefulWidget {
   final String rid, rname;
   const ChatScreen({super.key, required this.rid, required this.rname});
@@ -694,15 +751,16 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
 
 
   Msg? _replyMsg;
-
+  
   Msg? _editMsg;
  
   bool _searching = false;
   final _searchCtrl = TextEditingController();
   String _searchQ   = '';
 
-  String get _cid => FS.chatId(_me.uid, widget.rid);
+  DisappearTimer _disappearTimer = DisappearTimer.off;
 
+  String get _cid => FS.chatId(_me.uid, widget.rid);
 
   bool _isTyping = false;
 
@@ -712,7 +770,21 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     _markRead();
     FS.setPresence(online: true);
     _ctrl.addListener(_onTyping);
+    
+    FS.purgeExpiredMessages(_cid);
+  
+    _loadTimerSetting();
   }
+
+  Future<void> _loadTimerSetting() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('chats').doc(_cid).get();
+    if (doc.exists && mounted) {
+      final t = (doc.data() as Map<String, dynamic>)['disappearTimer'] as String?;
+      setState(() => _disappearTimer = DisappearTimerX.fromString(t));
+    }
+  }
+
 
   @override void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -720,7 +792,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     _ctrl.dispose();
     _searchCtrl.dispose();
     _scroll.dispose();
-    
+    // Clear typing when leaving
     FS.setPresence(online: true, typing: false, typingIn: '');
     super.dispose();
   }
@@ -744,7 +816,6 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
- 
   void _onTyping() {
     final hasText = _ctrl.text.trim().isNotEmpty;
     if (hasText && !_isTyping) {
@@ -755,13 +826,12 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       FS.setPresence(online: true, typing: false, typingIn: '');
     }
   }
-
-
   Future<void> _sendOrEdit() async {
     final t = _ctrl.text.trim();
     if (t.isEmpty) return;
 
     if (_editMsg != null) {
+      // FEATURE 7: Edit sent message
       await FS.editMsg(_cid, _editMsg!.id, t);
       setState(() { _editMsg = null; });
     } else {
@@ -781,16 +851,14 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     FS.setPresence(online: true, typing: false, typingIn: '');
   }
 
-
   Future<void> _deleteForEveryone(Msg msg) async {
     await FS.deleteForEveryone(_cid, msg.id);
   }
-
   Future<void> _react(Msg msg, String emoji) async {
     await FS.toggleReaction(_cid, msg.id, emoji, msg);
   }
 
-
+  
   void _startEdit(Msg msg) {
     setState(() {
       _editMsg  = msg;
@@ -801,7 +869,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         TextPosition(offset: _ctrl.text.length));
   }
 
- 
+
   void _startReply(Msg msg) {
     setState(() {
       _replyMsg = msg;
@@ -817,13 +885,28 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
   void _snack(String m) => ScaffoldMessenger.of(context)
       .showSnackBar(SnackBar(content: Text(m)));
 
+  Future<void> _showDisappearDialog() async {
+    final chosen = await showDialog<DisappearTimer>(
+      context: context,
+      builder: (ctx) => _DisappearTimerDialog(current: _disappearTimer),
+    );
+    if (chosen == null) return;
+    await FS.setDisappearTimer(_cid, chosen);
+    setState(() => _disappearTimer = chosen);
+    final msg = chosen == DisappearTimer.off
+        ? 'Disappearing messages turned off'
+        : 'Messages will disappear after ${chosen.label}';
+    _snack(msg);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: kBgChat,
     appBar: _buildAppBar(),
     body: Column(children: [
+      if (_disappearTimer != DisappearTimer.off)
+        _DisappearBanner(timer: _disappearTimer, onTap: _showDisappearDialog),
       Expanded(child: _buildMsgList()),
-      // ── FEATURE 4: Reply preview 
       if (_replyMsg != null) _ReplyPreview(
         msg: _replyMsg!,
         rname: widget.rname,
@@ -835,7 +918,6 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     ]),
   );
 
-  // ── APP BAR with online/typing status 
   PreferredSizeWidget _buildAppBar() => AppBar(
     backgroundColor: kGreen,
     titleSpacing: 0,
@@ -887,6 +969,23 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
       },
     ),
     actions: [
+      
+      IconButton(
+        tooltip: 'Disappearing messages',
+        icon: Stack(clipBehavior: Clip.none, children: [
+          const Icon(Icons.timer_outlined, color: Colors.white),
+          if (_disappearTimer != DisappearTimer.off)
+            Positioned(
+              right: -2, top: -2,
+              child: Container(
+                width: 8, height: 8,
+                decoration: const BoxDecoration(
+                  color: kGreen2, shape: BoxShape.circle),
+              ),
+            ),
+        ]),
+        onPressed: _showDisappearDialog,
+      ),
       IconButton(
         icon: Icon(_searching ? Icons.close : Icons.search, color: Colors.white),
         onPressed: () => setState(() {
@@ -897,9 +996,8 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     ],
   );
 
-
   Widget _buildMsgList() => Column(children: [
-   
+    // In-chat search bar
     if (_searching) Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -924,6 +1022,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
         _markRead();
         var docs = snap.data!.docs;
+        // Filter by search
         if (_searchQ.isNotEmpty) {
           docs = docs.where((d) {
             final data = d.data() as Map<String, dynamic>;
@@ -956,8 +1055,7 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
                 onDelete: () => _deleteForEveryone(msg),
                 onReact:  (e) => _react(msg, e),
               ),
-            ]);
-          },
+            ]);          },
         );
       },
     )),
@@ -965,7 +1063,6 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
 
   bool _diffDay(DateTime a, DateTime b) =>
       a.day != b.day || a.month != b.month || a.year != b.year;
-
 
   Widget _buildInput() => Container(
     color: const Color(0xffF0F0F0),
@@ -996,8 +1093,6 @@ class _ChatState extends State<ChatScreen> with WidgetsBindingObserver {
     ]),
   );
 }
-
-
 class _ReplyPreview extends StatelessWidget {
   final Msg msg; final String rname; final VoidCallback onCancel;
   const _ReplyPreview({required this.msg, required this.rname, required this.onCancel});
@@ -1024,7 +1119,6 @@ class _ReplyPreview extends StatelessWidget {
     );
   }
 }
-
 class _EditPreview extends StatelessWidget {
   final VoidCallback onCancel;
   const _EditPreview({required this.onCancel});
@@ -1040,7 +1134,6 @@ class _EditPreview extends StatelessWidget {
     ]),
   );
 }
-
 class _BubbleWrapper extends StatelessWidget {
   final Msg      msg;
   final bool     isMe;
@@ -1059,7 +1152,6 @@ class _BubbleWrapper extends StatelessWidget {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        // ── FEATURE 5: Emoji reactions ──────────────────────────
         if (msg.type != MsgType.deleted) ...[
           Padding(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1071,17 +1163,14 @@ class _BubbleWrapper extends StatelessWidget {
           ),
           const Divider(height: 0),
         ],
-       
         if (msg.type != MsgType.deleted)
           ListTile(leading: const Icon(Icons.reply),
               title: const Text('Reply'),
               onTap: () { Navigator.pop(ctx); onReply(); }),
-        
         if (isMe && msg.type == MsgType.text)
           ListTile(leading: const Icon(Icons.edit_outlined),
               title: const Text('Edit'),
               onTap: () { Navigator.pop(ctx); onEdit(); }),
-       
         if (msg.type == MsgType.text)
           ListTile(leading: const Icon(Icons.copy),
               title: const Text('Copy'),
@@ -1089,7 +1178,6 @@ class _BubbleWrapper extends StatelessWidget {
                 Navigator.pop(ctx);
                 Clipboard.setData(ClipboardData(text: msg.text));
               }),
-        
         if (isMe && msg.type != MsgType.deleted)
           ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red),
               title: const Text('Delete for Everyone',
@@ -1114,7 +1202,6 @@ class _BubbleWrapper extends StatelessWidget {
     ),
   );
 }
-
 
 class _Bubble extends StatelessWidget {
   final Msg msg; final bool isMe; final String meUid;
@@ -1147,17 +1234,22 @@ class _Bubble extends StatelessWidget {
                 bottomRight: Radius.circular(isMe?4:16)),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min, children: [
-                // ── FEATURE 4: Reply quote ──────────────────────
+                
                 if (msg.replyToId != null) _ReplyQuote(
                     text:   msg.replyToText ?? '',
                     sender: msg.replyToSender ?? ''),
                 _content(),
-                // Footer
+                
                 Padding(
                   padding: const EdgeInsets.only(right: 8, bottom: 5, left: 8, top: 2),
                   child: Row(mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
+                   
+                    if (msg.expiresAt != null) ...[
+                      _ExpiryChip(expiresAt: msg.expiresAt!),
+                      const SizedBox(width: 5),
+                    ],
                     if (msg.isEdited && msg.type != MsgType.deleted)
                       const Text('edited ', style: TextStyle(
                           fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic)),
@@ -1165,7 +1257,7 @@ class _Bubble extends StatelessWidget {
                         style: const TextStyle(fontSize: 10, color: Colors.grey)),
                     if (isMe) ...[
                       const SizedBox(width: 3),
-                      // ── 
+                      
                       Icon(
                         msg.status == MsgStatus.read ? Icons.done_all :
                         msg.status == MsgStatus.delivered ? Icons.done_all : Icons.done,
@@ -1179,7 +1271,7 @@ class _Bubble extends StatelessWidget {
               ]),
             ),
           ),
-          // 
+          
           if (msg.reactions.isNotEmpty)
             Padding(
               padding: EdgeInsets.only(
@@ -1247,7 +1339,6 @@ class _Bubble extends StatelessWidget {
       '${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}';
 }
 
-
 class _ReplyQuote extends StatelessWidget {
   final String text, sender;
   const _ReplyQuote({required this.text, required this.sender});
@@ -1255,7 +1346,7 @@ class _ReplyQuote extends StatelessWidget {
     margin: const EdgeInsets.fromLTRB(8, 8, 8, 4),
     padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
     decoration: BoxDecoration(
-      color: Colors.black.withOpacity(0.06), 
+      color: Colors.black.withOpacity(0.06),
       borderRadius: BorderRadius.circular(8),
       border: const Border(left: BorderSide(color: kGreen, width: 3)),
     ),
@@ -1269,6 +1360,7 @@ class _ReplyQuote extends StatelessWidget {
     ]),
   );
 }
+
 class _DateSep extends StatelessWidget {
   final DateTime date;
   const _DateSep({required this.date});
@@ -1290,5 +1382,239 @@ class _DateSep extends StatelessWidget {
   );
 }
 
+class _DisappearBanner extends StatelessWidget {
+  final DisappearTimer timer;
+  final VoidCallback   onTap;
+  const _DisappearBanner({required this.timer, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: double.infinity,
+      color: const Color(0xffFFF8C4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      child: Row(children: [
+        const Icon(Icons.timer_outlined, size: 15, color: Color(0xff7B6E00)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'Disappearing messages: ${timer.label}',
+            style: const TextStyle(fontSize: 12, color: Color(0xff7B6E00),
+                fontWeight: FontWeight.w500),
+          ),
+        ),
+        const Icon(Icons.chevron_right, size: 16, color: Color(0xff7B6E00)),
+      ]),
+    ),
+  );
+}
+
+class _ExpiryChip extends StatefulWidget {
+  final Timestamp expiresAt;
+  const _ExpiryChip({required this.expiresAt});
+  @override State<_ExpiryChip> createState() => _ExpiryChipState();
+}
+
+class _ExpiryChipState extends State<_ExpiryChip> {
+  late String _label;
+  late final _timer = Stream.periodic(const Duration(seconds: 1));
+  late final _sub   = _timer.listen((_) { if (mounted) setState(_refresh); });
+
+  void _refresh() => _label = _buildLabel();
+
+  String _buildLabel() {
+    final rem = widget.expiresAt.toDate().difference(DateTime.now());
+    if (rem.isNegative) return 'Expired';
+    if (rem.inDays >= 1) {
+      final d = rem.inDays;
+      return '${d}d ${rem.inHours.remainder(24)}h';
+    }
+    if (rem.inHours >= 1) {
+      return '${rem.inHours}h ${rem.inMinutes.remainder(60)}m';
+    }
+    if (rem.inMinutes >= 1) {
+      return '${rem.inMinutes}m ${rem.inSeconds.remainder(60)}s';
+    }
+    return '${rem.inSeconds}s';
+  }
+
+  @override void initState() { super.initState(); _label = _buildLabel(); }
+  @override void dispose()   { _sub.cancel(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final expired = _label == 'Expired';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: expired
+            ? Colors.red.withOpacity(0.12)
+            : Colors.orange.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.timer_outlined, size: 10,
+            color: expired ? Colors.red : Colors.orange),
+        const SizedBox(width: 3),
+        Text(_label,
+            style: TextStyle(
+                fontSize: 10,
+                color: expired ? Colors.red : Colors.orange,
+                fontWeight: FontWeight.w500)),
+      ]),
+    );
+  }
+}
+ 
+
+class _DisappearTimerDialog extends StatelessWidget {
+  final DisappearTimer current;
+  const _DisappearTimerDialog({required this.current});
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    title: const Row(children: [
+      Icon(Icons.timer_outlined, color: kGreen, size: 22),
+      SizedBox(width: 8),
+      Text('Disappearing messages',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+    ]),
+    content: Column(mainAxisSize: MainAxisSize.min, children: [
+      const Text(
+        'Messages sent in this chat will automatically be deleted after the selected time.',
+        style: TextStyle(fontSize: 13, color: Colors.grey),
+      ),
+      const SizedBox(height: 16),
+      ...DisappearTimer.values.map((t) => _TimerOption(
+        timer:     t,
+        selected:  t == current,
+        onTap:     () => Navigator.pop(context, t),
+      )),
+    ]),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+    ],
+  );
+}
+
+class _TimerOption extends StatelessWidget {
+  final DisappearTimer timer;
+  final bool           selected;
+  final VoidCallback   onTap;
+  const _TimerOption({required this.timer, required this.selected,
+      required this.onTap});
+
+  IconData get _icon {
+    switch (timer) {
+      case DisappearTimer.off: return Icons.timer_off_outlined;
+      case DisappearTimer.h24: return Icons.looks_one_outlined;
+      case DisappearTimer.d7:  return Icons.filter_7_outlined;
+      case DisappearTimer.d90: return Icons.calendar_month_outlined;
+    }
+  }
+
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(10),
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: selected ? kGreen.withOpacity(0.08) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: selected ? kGreen : Colors.grey.shade200,
+          width: selected ? 1.5 : 0.5,
+        ),
+      ),
+      child: Row(children: [
+        Icon(_icon, size: 20,
+            color: selected ? kGreen : Colors.grey),
+        const SizedBox(width: 12),
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(timer.label,
+                style: TextStyle(
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                    color: selected ? kGreen : Colors.black87,
+                    fontSize: 14)),
+            if (timer != DisappearTimer.off)
+              Text(_description(timer),
+                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ],
+        )),
+        if (selected)
+          const Icon(Icons.check_circle, color: kGreen, size: 20),
+      ]),
+    ),
+  );
+
+  String _description(DisappearTimer t) {
+    switch (t) {
+      case DisappearTimer.h24: return 'Great for sensitive conversations';
+      case DisappearTimer.d7:  return 'Recommended — like WhatsApp default';
+      case DisappearTimer.d90: return 'Long-term but still disappears';
+      default:                 return '';
+    }
+  }
+}
+
+
+
+
+// @override
+//   Widget build(BuildContext context, q, onTap) => InkWell(
+//     onTap: onTap,
+//     borderRadius: BorderRadius.circular(10),
+//     child: Container(
+//       margin: const EdgeInsets.only(bottom: 6),
+//       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+//       decoration: BoxDecoration(
+//         color: selected ? kGreen.withValues(alpha: 0.08) : Colors.transparent,
+//         borderRadius: BorderRadius.circular(10),
+//         border: Border.all(
+//           color: selected ? kGreen : Colors.grey.shade200,
+//           width: selected ? 1.5 : 0.5,
+//         ),
+//       ),w
+//       child: Row(children: [
+//         Icon(_icon, size: 20,
+//             color: selected ? kGreen : Colors.grey),
+//         const SizedBox(width: 12),
+//         Expanded(child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.start,
+//           children: [
+//             Text(timer.label,
+//                 style: TextStyle(
+//                     fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+//                     color: selected ? kGreen : Colors.black87,
+//                     fontSize: 14)),
+//             if (timer != DisappearTimer.off)
+//               Text(_description(timer),
+//                   style: const TextStyle(fontSize: 11, color: Colors.grey)),
+//           ],
+//         )),
+//         if (selected)
+//           const Icon(Icons.check_circle, color: kGreen, size: 20),
+//       ]),
+//     ),
+//   )ŵ
+//   String _description (DisappearTimer t)
+//   String _description(DisappearTimer t) {
+//     switch (t) {
+//       case DisappearTimer.h24: return 'Great for sensitive conversations';
+//       case DisappearTimer.d7:  return 'Recommended — like WhatsApp default';
+//       case DisappearTimer.d90: return 'Long-term but still disappears';
+//       default:                 return '';
+//     }
+//   }
 
 
