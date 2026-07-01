@@ -12,8 +12,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'data/chat_repository.dart';
+import 'data/call_repository.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/chat_bloc.dart';
+import 'bloc/call_bloc.dart';
+import 'screens/call_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,32 +34,36 @@ Future<void> main() async {
   runApp(const App());
 }
 
-
-
 class App extends StatelessWidget {
   const App({super.key});
   @override
   Widget build(BuildContext context) => RepositoryProvider<ChatRepository>(
     create: (_) => ChatRepository(),
-    child: BlocProvider<AuthBloc>(
-      create: (ctx) => AuthBloc(repo: ctx.read<ChatRepository>())
-        ..add(const AuthSubscriptionRequested()),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: kGreen),
-          useMaterial3: true,
-        ),
-        home: BlocBuilder<AuthBloc, AuthState>(
-          builder: (ctx, state) {
-            if (state.status == AuthStatus.unknown) {
-              return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()));
-            }
-            return state.status == AuthStatus.authenticated
-                ? const HomeScreen()
-                : const LoginScreen();
-          },
+    child: RepositoryProvider<CallRepository>(
+      create: (_) => CallRepository(),
+      child: BlocProvider<AuthBloc>(
+        create: (ctx) => AuthBloc(repo: ctx.read<ChatRepository>())
+          ..add(const AuthSubscriptionRequested()),
+        child: BlocProvider<CallBloc>(
+          create: (ctx) => CallBloc(repo: ctx.read<CallRepository>()),
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(seedColor: kGreen),
+              useMaterial3: true,
+            ),
+            home: BlocBuilder<AuthBloc, AuthState>(
+              builder: (ctx, state) {
+                if (state.status == AuthStatus.unknown) {
+                  return const Scaffold(
+                      body: Center(child: CircularProgressIndicator()));
+                }
+                return state.status == AuthStatus.authenticated
+                    ? const HomeScreen()
+                    : const LoginScreen();
+              },
+            ),
+          ),
         ),
       ),
     ),
@@ -774,23 +781,29 @@ class _ChatViewState extends State<_ChatView> with WidgetsBindingObserver {
             WidgetsBinding.instance.addPostFrameCallback((_) => _scrollBottom()),
       ),
     ],
-    child: Scaffold(
-      backgroundColor: kBgChat,
-      appBar: _buildAppBar(),
-      body: BlocBuilder<ChatBloc, ChatState>(
-        builder: (ctx, state) => Column(children: [
-          if (state.disappearTimer != DisappearTimer.off)
-            _DisappearBanner(
-                timer: state.disappearTimer,
-                onTap: () => _showDisappearDialog(state.disappearTimer)),
-          Expanded(child: _buildMsgList(state)),
-          if (state.replyMsg != null) _ReplyPreview(
-              msg: state.replyMsg!, rname: widget.rname, onCancel: _cancelAction),
-          if (state.editMsg != null) _EditPreview(onCancel: _cancelAction),
-          if (state.uploading) _UploadProgressBar(progress: state.uploadProgress),
-          _buildInput(state),
-        ]),
-      ),
+    child: BlocBuilder<CallBloc, CallState>(
+      builder: (ctx, callState) => Stack(children: [
+        Scaffold(
+          backgroundColor: kBgChat,
+          appBar: _buildAppBar(),
+          body: BlocBuilder<ChatBloc, ChatState>(
+            builder: (ctx, state) => Column(children: [
+              if (state.disappearTimer != DisappearTimer.off)
+                _DisappearBanner(
+                    timer: state.disappearTimer,
+                    onTap: () => _showDisappearDialog(state.disappearTimer)),
+              Expanded(child: _buildMsgList(state)),
+              if (state.replyMsg != null) _ReplyPreview(
+                  msg: state.replyMsg!, rname: widget.rname, onCancel: _cancelAction),
+              if (state.editMsg != null) _EditPreview(onCancel: _cancelAction),
+              if (state.uploading) _UploadProgressBar(progress: state.uploadProgress),
+              _buildInput(state),
+            ]),
+          ),
+        ),
+        if (callState.incomingCall != null)
+          IncomingCallOverlay(call: callState.incomingCall!),
+      ]),
     ),
   );
 
@@ -839,6 +852,62 @@ class _ChatViewState extends State<_ChatView> with WidgetsBindingObserver {
       },
     ),
     actions: [
+      IconButton(
+        icon: const Icon(Icons.call, color: Colors.white),
+        tooltip: 'Voice call',
+        onPressed: () {
+          context.read<CallBloc>().add(CallStarted(
+              receiverId:   widget.rid,
+              receiverName: widget.rname,
+              type:         CallType.voice));
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => BlocProvider.value(
+              value: context.read<CallBloc>(),
+              child: CallScreen(
+                call: CallModel(
+                  callId:       '',
+                  callerId:     _me.uid,
+                  callerName:   _me.displayName ?? _me.email!.split('@')[0],
+                  receiverId:   widget.rid,
+                  receiverName: widget.rname,
+                  type:         CallType.voice,
+                  status:       CallStatus.calling,
+                  createdAt:    DateTime.now(),
+                ),
+                isCaller: true,
+              ),
+            ),
+          ));
+        },
+      ),
+      IconButton(
+        icon: const Icon(Icons.videocam, color: Colors.white),
+        tooltip: 'Video call',
+        onPressed: () {
+          context.read<CallBloc>().add(CallStarted(
+              receiverId:   widget.rid,
+              receiverName: widget.rname,
+              type:         CallType.video));
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => BlocProvider.value(
+              value: context.read<CallBloc>(),
+              child: CallScreen(
+                call: CallModel(
+                  callId:       '',
+                  callerId:     _me.uid,
+                  callerName:   _me.displayName ?? _me.email!.split('@')[0],
+                  receiverId:   widget.rid,
+                  receiverName: widget.rname,
+                  type:         CallType.video,
+                  status:       CallStatus.calling,
+                  createdAt:    DateTime.now(),
+                ),
+                isCaller: true,
+              ),
+            ),
+          ));
+        },
+      ),
       BlocBuilder<ChatBloc, ChatState>(
         builder: (ctx, state) => IconButton(
           tooltip: 'Disappearing messages',

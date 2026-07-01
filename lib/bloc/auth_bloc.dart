@@ -43,7 +43,6 @@ class AuthLogoutRequested extends AuthEvent {
   const AuthLogoutRequested();
 }
 
-// ───────────────────────────── States ─────────────────────────────
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
