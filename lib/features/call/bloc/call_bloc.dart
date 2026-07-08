@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:bloc/bloc.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import '../data/call_repository.dart';
+import '../data/repositories/call_repository.dart';
+
 
 abstract class CallEvent extends Equatable {
   const CallEvent();
@@ -20,6 +22,7 @@ class CallStarted extends CallEvent {
   });
   @override List<Object?> get props => [receiverId, receiverName, type];
 }
+
 
 class CallAnswered extends CallEvent {
   final CallModel call;
@@ -41,15 +44,20 @@ class _CallDocUpdated extends CallEvent {
   @override List<Object?> get props => [data];
 }
 
+
 class _RemoteIceCandidateAdded extends CallEvent {
   final RTCIceCandidate candidate;
   const _RemoteIceCandidateAdded(this.candidate);
   @override List<Object?> get props => [candidate];
 }
 
+
 class _RemoteStreamArrived extends CallEvent {
-  const _RemoteStreamArrived();
+  final int ts; 
+  _RemoteStreamArrived() : ts = DateTime.now().millisecondsSinceEpoch;
+  @override List<Object?> get props => [ts];
 }
+
 
 class CallMicToggled   extends CallEvent { const CallMicToggled(); }
 class CallCameraToggled extends CallEvent { const CallCameraToggled(); }
@@ -60,15 +68,16 @@ class IncomingCallReceived extends CallEvent {
   const IncomingCallReceived(this.call);
   @override List<Object?> get props => [call];
 }
-
 class IncomingCallDismissed extends CallEvent {
   const IncomingCallDismissed();
 }
 
+
 class CallState extends Equatable {
   final CallStatus status;
   final CallModel? currentCall;
-  final CallModel? incomingCall;  
+  final CallModel? incomingCall;   
+
   final RTCVideoRenderer? localRenderer;
   final RTCVideoRenderer? remoteRenderer;
 
@@ -76,7 +85,7 @@ class CallState extends Equatable {
   final bool cameraOff;
   final bool isCaller;
   final String? error;
-
+  final int streamTs; 
   const CallState({
     this.status = CallStatus.idle,
     this.currentCall,
@@ -87,6 +96,7 @@ class CallState extends Equatable {
     this.cameraOff = false,
     this.isCaller = false,
     this.error,
+    this.streamTs = 0,
   });
 
   bool get isActive =>
@@ -107,6 +117,7 @@ class CallState extends Equatable {
     bool? isCaller,
     String? error,
     bool clearError = false,
+    int? streamTs,
   }) =>
       CallState(
         status:         status         ?? this.status,
@@ -118,15 +129,15 @@ class CallState extends Equatable {
         cameraOff:      cameraOff      ?? this.cameraOff,
         isCaller:       isCaller       ?? this.isCaller,
         error:          clearError ? null : (error ?? this.error),
+        streamTs:       streamTs       ?? this.streamTs,
       );
 
   @override
   List<Object?> get props => [
         status, currentCall, incomingCall,
-        micMuted, cameraOff, isCaller, error,
+        micMuted, cameraOff, isCaller, error, streamTs,
       ];
 }
-
 
 class CallBloc extends Bloc<CallEvent, CallState> {
   final CallRepository repo;
@@ -142,6 +153,9 @@ class CallBloc extends Bloc<CallEvent, CallState> {
   final _localRenderer  = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
 
+  RTCVideoRenderer? get localRenderer  => _localRenderer;
+  RTCVideoRenderer? get remoteRenderer => _remoteRenderer;
+
   CallBloc({required this.repo}) : super(const CallState()) {
     on<CallStarted>(_onCallStarted);
     on<CallAnswered>(_onCallAnswered);
@@ -149,8 +163,11 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     on<CallDeclined>(_onCallDeclined);
     on<_CallDocUpdated>(_onCallDocUpdated);
     on<_RemoteIceCandidateAdded>(_onRemoteIceCandidate);
-    on<_RemoteStreamArrived>((_, emit) =>
-        emit(state.copyWith(remoteRenderer: _remoteRenderer)));
+    on<_RemoteStreamArrived>((event, emit) => emit(state.copyWith(
+        status:         CallStatus.connected,
+        localRenderer:  _localRenderer,
+        remoteRenderer: _remoteRenderer,
+        streamTs:       event.ts)));
     on<CallMicToggled>(_onMicToggled);
     on<CallCameraToggled>(_onCameraToggled);
     on<CallCameraSwitched>(_onCameraSwitched);
@@ -165,6 +182,8 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
   }
+
+  
   void _listenForIncomingCalls() {
     _incomingSub = repo.incomingCallStream().listen((snap) {
       if (snap.docs.isEmpty) return;
@@ -179,6 +198,8 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       IncomingCallReceived event, Emitter<CallState> emit) {
     emit(state.copyWith(incomingCall: event.call));
   }
+
+  
   Future<void> _onCallStarted(
       CallStarted event, Emitter<CallState> emit) async {
     try {
@@ -190,16 +211,28 @@ class CallBloc extends Bloc<CallEvent, CallState> {
         remoteRenderer: _remoteRenderer,
       ));
 
-      
+
       _localStream = await repo.getUserMedia(
           video: event.type == CallType.video);
       _localRenderer.srcObject = _localStream;
       emit(state.copyWith(localRenderer: _localRenderer));
 
-      _pc = await repo.createPeerConnection();
-      _setupPeerConnectionHandlers(isCaller: true);
 
-      _localStream!.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
+      _pc = await repo.createPeerConnection();
+      await _setupPeerConnectionHandlers(isCaller: true);
+
+
+      for (final track in _localStream!.getTracks()) {
+        await _pc!.addTransceiver(
+          track: track,
+          kind: track.kind == 'audio'
+              ? RTCRtpMediaType.RTCRtpMediaTypeAudio
+              : RTCRtpMediaType.RTCRtpMediaTypeVideo,
+          init: RTCRtpTransceiverInit(
+              direction: TransceiverDirection.SendRecv),
+        );
+      }
+
 
       _callId = await repo.createCall(
         receiverId:   event.receiverId,
@@ -209,7 +242,7 @@ class CallBloc extends Bloc<CallEvent, CallState> {
 
       final model = CallModel(
         callId:       _callId!,
-        callerId:     repo.iceServers.toString(), 
+        callerId:     '',  
         callerName:   '',
         receiverId:   event.receiverId,
         receiverName: event.receiverName,
@@ -219,10 +252,11 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       );
       emit(state.copyWith(currentCall: model));
 
-      final offer = await _pc!.createOffer({'offerToReceiveAudio': 1, 'offerToReceiveVideo': 1});
+      final offer = await _pc!.createOffer({});
       await _pc!.setLocalDescription(offer);
       await repo.setOffer(_callId!, offer);
 
+     
       _listenToCallDoc();
       _listenToCalleeCandidates();
 
@@ -231,6 +265,8 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       await _cleanup();
     }
   }
+
+  
   Future<void> _onCallAnswered(
       CallAnswered event, Emitter<CallState> emit) async {
     try {
@@ -245,17 +281,28 @@ class CallBloc extends Bloc<CallEvent, CallState> {
         remoteRenderer: _remoteRenderer,
       ));
 
-      
+     
       _localStream = await repo.getUserMedia(
           video: event.call.type == CallType.video);
       _localRenderer.srcObject = _localStream;
       emit(state.copyWith(localRenderer: _localRenderer));
 
-      
+   
       _pc = await repo.createPeerConnection();
-      _setupPeerConnectionHandlers(isCaller: false);
+      await _setupPeerConnectionHandlers(isCaller: false);
 
-      _localStream!.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
+      
+      for (final track in _localStream!.getTracks()) {
+        await _pc!.addTransceiver(
+          track: track,
+          kind: track.kind == 'audio'
+              ? RTCRtpMediaType.RTCRtpMediaTypeAudio
+              : RTCRtpMediaType.RTCRtpMediaTypeVideo,
+          init: RTCRtpTransceiverInit(
+              direction: TransceiverDirection.SendRecv),
+        );
+      }
+
 
       final snap = await FirebaseFirestore.instance
           .collection('calls').doc(_callId).get();
@@ -265,11 +312,13 @@ class CallBloc extends Bloc<CallEvent, CallState> {
           offerMap['sdp'] as String, offerMap['type'] as String);
       await _pc!.setRemoteDescription(offer);
 
+
       final answer = await _pc!.createAnswer();
       await _pc!.setLocalDescription(answer);
       await repo.setAnswer(_callId!, answer);
       await repo.updateStatus(_callId!, CallStatus.connected);
 
+     
       _listenToCallerCandidates();
       _listenToCallDoc();
 
@@ -286,6 +335,7 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     emit(state.copyWith(
         status: CallStatus.ended, clearCurrentCall: true, clearError: true));
     await _cleanup();
+   
     await Future.delayed(const Duration(seconds: 2));
     emit(state.copyWith(status: CallStatus.idle));
   }
@@ -336,6 +386,8 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       emit(state.copyWith(status: CallStatus.idle));
     }
   }
+
+ 
   void _listenToCalleeCandidates() {
     _candidatesSub?.cancel();
     _candidatesSub = repo.calleeCandidatesStream(_callId!).listen((snap) {
@@ -375,7 +427,9 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     } catch (_) {}
   }
 
-  void _setupPeerConnectionHandlers({required bool isCaller}) {
+  Future<void> _setupPeerConnectionHandlers({required bool isCaller}) async {
+    final remoteStream = await createLocalMediaStream('remote_$_callId');
+
     _pc!.onIceCandidate = (candidate) {
       if (candidate.candidate == null) return;
       if (isCaller) {
@@ -385,21 +439,76 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       }
     };
 
-    _pc!.onAddStream = (stream) {
-      _remoteRenderer.srcObject = stream;
-      add(const _RemoteStreamArrived());
+    _pc!.onTrack = (RTCTrackEvent event) async {
+      debugPrint('onTrack fired: kind=${event.track.kind} '
+          'streams=${event.streams.length}');
+
+      if (event.streams.isNotEmpty) {
+        _remoteRenderer.srcObject = event.streams.first;
+      } else {
+        
+        await remoteStream.addTrack(event.track, addToNative: true);
+        _remoteRenderer.srcObject = remoteStream;
+      }
+
+      debugPrint('remoteRenderer.srcObject set: '
+          '${_remoteRenderer.srcObject?.id}');
+      add(_RemoteStreamArrived());
     };
 
-    _pc!.onConnectionState = (state) {
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+ 
+    _pc!.onAddStream = (MediaStream stream) {
+      debugPrint('onAddStream fired: ${stream.id}');
+      _remoteRenderer.srcObject = stream;
+      add(_RemoteStreamArrived());
+    };
+
+    _pc!.onConnectionState = (RTCPeerConnectionState s) {
+      debugPrint('onConnectionState: $s');
+      if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+  
+        _pollRemoteStream();
         add(const _CallDocUpdated({'status': 'connected'}));
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-                 state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+      } else if (
+          s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+          s == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
         add(const CallEnded());
+      }
+    };
+
+    _pc!.onIceConnectionState = (RTCIceConnectionState s) {
+      debugPrint('onIceConnectionState: $s');
+      if (s == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          s == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        _pollRemoteStream();
+        add(const _CallDocUpdated({'status': 'connected'}));
       }
     };
   }
 
+  Future<void> _pollRemoteStream() async {
+    if (_pc == null) return;
+    try {
+      final transceivers = await _pc!.getTransceivers();
+      for (final t in transceivers) {
+        final receiver = t.receiver;
+        final track    = receiver.track;
+        if (track != null && track.kind == 'video') {
+       
+          final stream = await createLocalMediaStream('polled_$_callId');
+          await stream.addTrack(track, addToNative: true);
+          _remoteRenderer.srcObject = stream;
+          debugPrint('Polled remote video track: ${track.id}');
+          add(_RemoteStreamArrived());
+          break;
+        }
+      }
+    } catch (e) {
+      debugPrint('pollRemoteStream error: $e');
+    }
+  }
+
+  
   void _onMicToggled(CallMicToggled event, Emitter<CallState> emit) {
     final muted = !state.micMuted;
     _localStream?.getAudioTracks().forEach((t) => t.enabled = !muted);

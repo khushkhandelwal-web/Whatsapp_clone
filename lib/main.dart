@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:khush_chat/features/chat/data/%20models/repositories/chat_repository.dart';
 import 'firebase_options.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -11,12 +12,15 @@ import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'data/chat_repository.dart';
-import 'data/call_repository.dart';
-import 'bloc/auth_bloc.dart';
-import 'bloc/chat_bloc.dart';
-import 'bloc/call_bloc.dart';
+import 'features/chat/data/repositories/chat_repository.dart';
+import 'features/chat/data/models/message_model.dart';
+import 'features/call/data/repositories/call_repository.dart';
+import 'features/auth/bloc/auth_bloc.dart';
+import 'features/auth/data/repositories/auth_repository.dart';
+import 'features/chat/bloc/chat_bloc.dart';
+import 'features/call/bloc/call_bloc.dart';
 import 'screens/call_screen.dart';
+import 'core/config/app_config.dart' hide kGreen, kGreen2, kBgChat, kReactions, kBubbleMe;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,36 +38,45 @@ Future<void> main() async {
   runApp(const App());
 }
 
+
+
+
 class App extends StatelessWidget {
   const App({super.key});
   @override
-  Widget build(BuildContext context) => RepositoryProvider<ChatRepository>(
-    create: (_) => ChatRepository(),
-    child: RepositoryProvider<CallRepository>(
-      create: (_) => CallRepository(),
-      child: BlocProvider<AuthBloc>(
-        create: (ctx) => AuthBloc(repo: ctx.read<ChatRepository>())
-          ..add(const AuthSubscriptionRequested()),
-        child: BlocProvider<CallBloc>(
+  Widget build(BuildContext context) => MultiRepositoryProvider(
+    providers: [
+      RepositoryProvider(create: (_) => AuthRepository()),
+      RepositoryProvider(create: (_) => ChatRepository()),
+      RepositoryProvider(create: (_) => CallRepository()),
+    ],
+    child: MultiBlocProvider(
+      providers: [
+        BlocProvider<AuthBloc>(
+          create: (ctx) => AuthBloc(
+            repository: ctx.read<AuthRepository>(),
+          )..add(const AuthStarted()),
+        ),
+        BlocProvider<CallBloc>(
           create: (ctx) => CallBloc(repo: ctx.read<CallRepository>()),
-          child: MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(seedColor: kGreen),
-              useMaterial3: true,
-            ),
-            home: BlocBuilder<AuthBloc, AuthState>(
-              builder: (ctx, state) {
-                if (state.status == AuthStatus.unknown) {
-                  return const Scaffold(
-                      body: Center(child: CircularProgressIndicator()));
-                }
-                return state.status == AuthStatus.authenticated
-                    ? const HomeScreen()
-                    : const LoginScreen();
-              },
-            ),
-          ),
+        ),
+      ],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: kGreen),
+          useMaterial3: true,
+        ),
+        home: BlocBuilder<AuthBloc, AuthState>(
+          builder: (ctx, state) {
+            if (state.status == AuthStatus.unknown) {
+              return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()));
+            }
+            return state.status == AuthStatus.authenticated
+                ? const HomeScreen()
+                : const LoginScreen();
+          },
         ),
       ),
     ),

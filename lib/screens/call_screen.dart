@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import '../bloc/call_bloc.dart';
-import '../data/call_repository.dart';
+import '../features/call/bloc/call_bloc.dart';
+import '../features/call/data/repositories/call_repository.dart';
+
 
 
 class CallScreen extends StatelessWidget {
@@ -12,121 +13,192 @@ class CallScreen extends StatelessWidget {
   const CallScreen({super.key, required this.call, required this.isCaller});
 
   @override
-  Widget build(BuildContext context) =>
-      BlocListener<CallBloc, CallState>(
-        listenWhen: (prev, curr) =>
-            curr.status == CallStatus.ended ||
-            curr.status == CallStatus.declined ||
-            curr.status == CallStatus.missed,
-        listener: (ctx, state) => Navigator.of(ctx).pop(),
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: BlocBuilder<CallBloc, CallState>(
-            builder: (ctx, state) {
-              final isVideo = call.type == CallType.video;
-              return Stack(children: [
-                if (isVideo && state.remoteRenderer != null)
-                  Positioned.fill(
-                    child: RTCVideoView(
-                      state.remoteRenderer!,
-                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                    ),
-                  )
-                else
-                  Positioned.fill(child: _VoiceBackground(call: call)),
+  Widget build(BuildContext context) {
+    final bloc    = context.read<CallBloc>();
+    final isVideo = call.type == CallType.video;
 
-                if (isVideo && state.localRenderer != null)
-                  Positioned(
-                    top: 60, right: 16,
-                    width: 110, height: 160,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: state.cameraOff
-                          ? Container(color: Colors.grey.shade800,
-                              child: const Icon(Icons.videocam_off,
-                                  color: Colors.white, size: 32))
-                          : RTCVideoView(state.localRenderer!,
-                              mirror: true,
-                              objectFit: RTCVideoViewObjectFit
-                                  .RTCVideoViewObjectFitCover),
-                    ),
-                  ),
+    return BlocListener<CallBloc, CallState>(
+      listenWhen: (_, curr) =>
+          curr.status == CallStatus.ended    ||
+          curr.status == CallStatus.declined ||
+          curr.status == CallStatus.missed,
+      listener: (_, __) => Navigator.of(context).pop(),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: BlocBuilder<CallBloc, CallState>(
+          builder: (ctx, state) {
+            final remoteHasStream =
+                bloc.remoteRenderer?.srcObject != null;
 
-                Positioned(
-                  top: 0, left: 0, right: 0,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 16),
-                      child: Column(children: [
-                        Text(
-                          isCaller ? call.receiverName : call.callerName,
-                          style: const TextStyle(color: Colors.white,
-                              fontSize: 28, fontWeight: FontWeight.w600),
+            return Stack(children: [
+
+             
+              if (isVideo)
+                Positioned.fill(
+                  child: remoteHasStream
+                      ? RTCVideoView(
+                          bloc.remoteRenderer!,
+                          objectFit: RTCVideoViewObjectFit
+                              .RTCVideoViewObjectFitCover,
+                        )
+                      : _Placeholder(
+                          name: isCaller
+                              ? call.receiverName : call.callerName,
+                          label: state.status == CallStatus.connected
+                              ? 'Camera loading…'
+                              : 'Waiting…',
                         ),
-                        const SizedBox(height: 8),
-                        _StatusLabel(status: state.status),
-                      ]),
-                    ),
+                )
+              else
+                Positioned.fill(
+                    child: _VoiceBackground(call: call, isCaller: isCaller)),
+              if (isVideo && bloc.localRenderer != null)
+                Positioned(
+                  top: 56, right: 14,
+                  width: 120, height: 170,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: state.cameraOff
+                        ? Container(
+                            color: Colors.grey.shade800,
+                            child: const Center(child: Icon(
+                                Icons.videocam_off,
+                                color: Colors.white, size: 34)))
+                        : RTCVideoView(
+                            bloc.localRenderer!,
+                            mirror: true,
+                            objectFit: RTCVideoViewObjectFit
+                                .RTCVideoViewObjectFitCover,
+                          ),
                   ),
                 ),
 
-                Positioned(
-                  bottom: 0, left: 0, right: 0,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 40),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-
-                          
-                          _CtrlBtn(
-                            icon: state.micMuted
-                                ? Icons.mic_off : Icons.mic,
-                            label: state.micMuted ? 'Unmute' : 'Mute',
-                            onTap: () =>
-                                ctx.read<CallBloc>().add(const CallMicToggled()),
-                          ),
-                          _CtrlBtn(
-                            icon: Icons.call_end_rounded,
-                            label: 'End',
-                            color: Colors.red,
-                            size: 64,
-                            onTap: () =>
-                                ctx.read<CallBloc>().add(const CallEnded()),
-                          ),
-
-                          
-                          if (isVideo)
-                            _CtrlBtn(
-                              icon: state.cameraOff
-                                  ? Icons.videocam_off : Icons.videocam,
-                              label: state.cameraOff ? 'Cam Off' : 'Cam On',
-                              onTap: () => ctx.read<CallBloc>()
-                                  .add(const CallCameraToggled()),
-                            )
-                          else
-                            _CtrlBtn(
-                              icon: Icons.volume_up_rounded,
-                              label: 'Speaker',
-                              onTap: () {},
-                            ),
+              Positioned(
+                top: 0, left: 0, right: 0,
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 20),
+                    child: Column(children: [
+                      Text(
+                        isCaller
+                            ? call.receiverName : call.callerName,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w700,
+                            shadows: [Shadow(
+                                blurRadius: 8, color: Colors.black54)]),
+                      ),
+                      const SizedBox(height: 6),
+                      _StatusLabel(status: state.status),
+                    ]),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: 0, left: 0, right: 0,
+                child: SafeArea(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 32, horizontal: 24),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.75),
+                          Colors.transparent,
                         ],
                       ),
                     ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _CtrlBtn(
+                          icon: state.micMuted
+                              ? Icons.mic_off : Icons.mic,
+                          label: state.micMuted ? 'Unmute' : 'Mute',
+                          active: state.micMuted,
+                          onTap: () => ctx.read<CallBloc>()
+                              .add(const CallMicToggled()),
+                        ),
+                        _CtrlBtn(
+                          icon: Icons.call_end_rounded,
+                          label: 'End',
+                          color: Colors.red,
+                          size: 68,
+                          onTap: () => ctx.read<CallBloc>()
+                              .add(const CallEnded()),
+                        ),
+                        if (isVideo)
+                          _CtrlBtn(
+                            icon: state.cameraOff
+                                ? Icons.videocam_off : Icons.videocam,
+                            label: state.cameraOff
+                                ? 'Cam Off' : 'Cam On',
+                            active: state.cameraOff,
+                            onTap: () => ctx.read<CallBloc>()
+                                .add(const CallCameraToggled()),
+                          )
+                        else
+                          _CtrlBtn(
+                            icon: Icons.volume_up_rounded,
+                            label: 'Speaker',
+                            onTap: () {},
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-              ]);
-            },
-          ),
+              ),
+            ]);
+          },
         ),
-      );
+      ),
+    );
+  }
 }
+
+
+class _Placeholder extends StatelessWidget {
+  final String name, label;
+  const _Placeholder({required this.name, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [Color(0xff1a1a2e), Color(0xff16213e)],
+      ),
+    ),
+    child: Center(child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        CircleAvatar(
+          radius: 56,
+          backgroundColor: Colors.white12,
+          child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+              style: const TextStyle(fontSize: 48,
+                  color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+        const SizedBox(height: 20),
+        Text(name,
+            style: const TextStyle(color: Colors.white70, fontSize: 18)),
+        const SizedBox(height: 8),
+        Text(label,
+            style: const TextStyle(color: Colors.white38, fontSize: 14)),
+      ],
+    )),
+  );
+}
+
 
 class _VoiceBackground extends StatelessWidget {
   final CallModel call;
-  const _VoiceBackground({required this.call});
+  final bool isCaller;
+  const _VoiceBackground({required this.call, required this.isCaller});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -140,15 +212,17 @@ class _VoiceBackground extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         CircleAvatar(
-          radius: 60,
+          radius: 64,
           backgroundColor: Colors.white24,
-          child: Text(call.callerName.isNotEmpty
-              ? call.callerName[0].toUpperCase() : '?',
-              style: const TextStyle(fontSize: 52,
-                  color: Colors.white, fontWeight: FontWeight.bold)),
+          child: Text(
+            isCaller
+                ? call.receiverName[0].toUpperCase()
+                : call.callerName[0].toUpperCase(),
+            style: const TextStyle(fontSize: 52,
+                color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         const SizedBox(height: 24),
-        Text(call.callerName,
+        Text(isCaller ? call.receiverName : call.callerName,
             style: const TextStyle(color: Colors.white,
                 fontSize: 26, fontWeight: FontWeight.w500)),
       ],
@@ -156,57 +230,69 @@ class _VoiceBackground extends StatelessWidget {
   );
 }
 
-
 class _StatusLabel extends StatelessWidget {
   final CallStatus status;
   const _StatusLabel({required this.status});
 
-  String get _label {
-    switch (status) {
-      case CallStatus.calling:   return 'Calling…';
-      case CallStatus.ringing:   return 'Ringing…';
-      case CallStatus.connected: return 'Connected';
-      case CallStatus.ended:     return 'Call ended';
-      case CallStatus.declined:  return 'Declined';
-      default:                   return '';
-    }
-  }
-
   @override
-  Widget build(BuildContext context) => Text(_label,
-      style: TextStyle(
-          color: status == CallStatus.connected
-              ? Colors.greenAccent : Colors.white70,
-          fontSize: 16));
+  Widget build(BuildContext context) {
+    String text; Color color;
+    switch (status) {
+      case CallStatus.calling:
+        text = 'Calling…';   color = Colors.white70; break;
+      case CallStatus.ringing:
+        text = 'Ringing…';   color = Colors.white70; break;
+      case CallStatus.connected:
+        text = 'Connected';  color = Colors.greenAccent; break;
+      case CallStatus.ended:
+        text = 'Call ended'; color = Colors.redAccent; break;
+      case CallStatus.declined:
+        text = 'Declined';   color = Colors.redAccent; break;
+      default:
+        text = '';           color = Colors.transparent;
+    }
+    return Text(text, style: TextStyle(color: color, fontSize: 16,
+        shadows: const [Shadow(blurRadius: 6, color: Colors.black45)]));
+  }
 }
-
 
 class _CtrlBtn extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
   final double size;
+  final bool active;
   final VoidCallback onTap;
 
   const _CtrlBtn({
     required this.icon,
     required this.label,
     required this.onTap,
-    this.color = Colors.white24,
-    this.size  = 56,
+    this.color  = Colors.white24,
+    this.size   = 58,
+    this.active = false,
   });
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Column(mainAxisSize: MainAxisSize.min, children: [
-      Container(
+      AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         width: size, height: size,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        child: Icon(icon, color: Colors.white, size: size * 0.45),
+        decoration: BoxDecoration(
+          color: active ? Colors.white24 : color,
+          shape: BoxShape.circle,
+          border: active
+              ? Border.all(color: Colors.white54, width: 1.5)
+              : null,
+        ),
+        child: Icon(icon, color: Colors.white, size: size * 0.44),
       ),
       const SizedBox(height: 8),
-      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+      Text(label, style: const TextStyle(
+          color: Colors.white70, fontSize: 12,
+          fontWeight: FontWeight.w500)),
     ]),
   );
 }
@@ -214,7 +300,6 @@ class _CtrlBtn extends StatelessWidget {
 
 class IncomingCallOverlay extends StatelessWidget {
   final CallModel call;
-
   const IncomingCallOverlay({super.key, required this.call});
 
   @override
@@ -225,17 +310,17 @@ class IncomingCallOverlay extends StatelessWidget {
         color: Colors.transparent,
         child: Container(
           margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: const Color(0xff075E54),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 12, offset: const Offset(0, 4))],
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 14,
+                offset: const Offset(0, 4))],
           ),
           child: Row(children: [
-
-            
             CircleAvatar(
               radius: 24,
               backgroundColor: Colors.white24,
@@ -244,8 +329,6 @@ class IncomingCallOverlay extends StatelessWidget {
                       fontWeight: FontWeight.bold, fontSize: 20)),
             ),
             const SizedBox(width: 12),
-
-       
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -253,24 +336,23 @@ class IncomingCallOverlay extends StatelessWidget {
                     style: const TextStyle(color: Colors.white,
                         fontWeight: FontWeight.w600, fontSize: 15)),
                 Row(children: [
-                  Icon(
-                    call.type == CallType.video
-                        ? Icons.videocam : Icons.call,
-                    color: Colors.white70, size: 14),
+                  Icon(call.type == CallType.video
+                      ? Icons.videocam : Icons.call,
+                      color: Colors.white70, size: 14),
                   const SizedBox(width: 4),
-                  Text(
-                    call.type == CallType.video
-                        ? 'Incoming video call' : 'Incoming voice call',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  Text(call.type == CallType.video
+                      ? 'Incoming video call'
+                      : 'Incoming voice call',
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 13)),
                 ]),
               ],
             )),
-
             GestureDetector(
               onTap: () => context.read<CallBloc>()
                   .add(const CallDeclined()),
               child: Container(
-                width: 44, height: 44,
+                width: 46, height: 46,
                 decoration: const BoxDecoration(
                     color: Colors.red, shape: BoxShape.circle),
                 child: const Icon(Icons.call_end_rounded,
@@ -278,16 +360,19 @@ class IncomingCallOverlay extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-
+           
             GestureDetector(
               onTap: () {
                 context.read<CallBloc>().add(CallAnswered(call));
                 Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => CallScreen(call: call, isCaller: false),
+                  builder: (_) => BlocProvider.value(
+                    value: context.read<CallBloc>(),
+                    child: CallScreen(call: call, isCaller: false),
+                  ),
                 ));
               },
               child: Container(
-                width: 44, height: 44,
+                width: 46, height: 46,
                 decoration: const BoxDecoration(
                     color: Colors.green, shape: BoxShape.circle),
                 child: const Icon(Icons.call_rounded,

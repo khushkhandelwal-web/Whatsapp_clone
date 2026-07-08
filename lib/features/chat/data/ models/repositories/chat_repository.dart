@@ -162,6 +162,7 @@ class Msg {
     );
   }
 }
+
 class DioService {
   static final DioService _instance = DioService._internal();
   factory DioService() => _instance;
@@ -170,7 +171,7 @@ class DioService {
   DioService._internal() {
     dio = Dio(
       BaseOptions(
-        
+        baseUrl: "",
         connectTimeout: const Duration(seconds: 30),
         receiveTimeout: const Duration(seconds: 30),
         headers: {
@@ -246,7 +247,6 @@ class DioService {
     return map[ext] ?? 'application/octet-stream';
   }
 }
-
 class ChatRepository {
   final _db = FirebaseFirestore.instance;
   final DioService _dio = DioService();

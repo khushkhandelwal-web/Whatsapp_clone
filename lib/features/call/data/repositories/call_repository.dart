@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:uuid/uuid.dart';
 
 
+
 enum CallType { voice, video }
 enum CallStatus { idle, calling, ringing, connected, ended, declined, missed }
 
@@ -55,6 +56,7 @@ class CallModel {
   static String _statusStr(CallStatus s)   => callStatusStr(s);
 }
 
+
 CallStatus callStatusFrom(String? s) {
   switch (s) {
     case 'calling':   return CallStatus.calling;
@@ -79,14 +81,59 @@ String callStatusStr(CallStatus s) {
   }
 }
 
-const _iceServers = {
+
+Map<String, dynamic> get _iceServers => {
   'iceServers': [
+
     {'urls': 'stun:stun.l.google.com:19302'},
     {'urls': 'stun:stun1.l.google.com:19302'},
     {'urls': 'stun:stun2.l.google.com:19302'},
-  ]
-};
+    {'urls': 'stun:stun3.l.google.com:19302'},
 
+
+    {
+      'urls':       'turn:global.relay.metered.ca:80',
+      'username':   'e9d3174aa37b89a4fde39cd6',
+      'credential': 'uqvMoSFjxMGWkNhe',
+    },
+    
+    {
+      'urls':       'turn:global.relay.metered.ca:80?transport=tcp',
+      'username':   'e9d3174aa37b89a4fde39cd6',
+      'credential': 'uqvMoSFjxMGWkNhe',
+    },
+   
+    {
+      'urls':       'turns:global.relay.metered.ca:443',
+      'username':   'e9d3174aa37b89a4fde39cd6',
+      'credential': 'uqvMoSFjxMGWkNhe',
+    },
+
+    {
+      'urls':       'turns:global.relay.metered.ca:443?transport=tcp',
+      'username':   'e9d3174aa37b89a4fde39cd6',
+      'credential': 'uqvMoSFjxMGWkNhe',
+    },
+
+    {
+      'urls':       'turn:openrelay.metered.ca:80',
+      'username':   'openrelayproject',
+      'credential': 'openrelayproject',
+    },
+    {
+      'urls':       'turn:openrelay.metered.ca:443',
+      'username':   'openrelayproject',
+      'credential': 'openrelayproject',
+    },
+    {
+      'urls':       'turn:openrelay.metered.ca:443?transport=tcp',
+      'username':   'openrelayproject',
+      'credential': 'openrelayproject',
+    },
+  ],
+
+  'iceTransportPolicy': 'all',
+};
 
 class CallRepository {
   final _db   = FirebaseFirestore.instance;
@@ -186,8 +233,9 @@ class CallRepository {
     await batch.commit();
   }
 
-  Map<String, dynamic> get iceServers => _iceServers;
+  Map<String, dynamic> get iceConfig => _iceServers;
 }
+
 Future<RTCPeerConnection> createPeerConnectionFromMap(
         Map<String, dynamic> config) =>
     createPeerConnection(config);

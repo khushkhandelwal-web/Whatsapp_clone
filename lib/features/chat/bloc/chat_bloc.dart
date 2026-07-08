@@ -3,8 +3,11 @@ import 'dart:io';
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:khush_chat/features/chat/data/%20models/repositories/chat_repository.dart';
 import 'package:path/path.dart' as p;
-import '../data/chat_repository.dart';
+import '../data/models/message_model.dart';
+import '../data/repositories/chat_repository.dart';
+
 
 
 abstract class ChatEvent extends Equatable {
@@ -12,6 +15,9 @@ abstract class ChatEvent extends Equatable {
   @override
   List<Object?> get props => [];
 }
+
+/// Call once when ChatScreen opens. Wires up the messages stream,
+/// presence stream, marks read, purges expired msgs, loads timer setting.
 class ChatStarted extends ChatEvent {
   final String myUid, peerUid, peerName;
   const ChatStarted(
@@ -143,10 +149,11 @@ class ChatClosed extends ChatEvent {
   const ChatClosed();
 }
 
+// ───────────────────────────── State ─────────────────────────────
 
 class ChatState extends Equatable {
   final List<Msg> allMessages;
-  final List<Msg> visibleMessages;  
+  final List<Msg> visibleMessages; // filtered by search query
   final bool loadingMessages;
 
   final bool peerOnline, peerTyping, peerRecording;
@@ -165,7 +172,7 @@ class ChatState extends Equatable {
   final String searchQuery;
 
   final String? error;
-  final String? infoMessage; 
+  final String? infoMessage; // for one-off snackbar-style messages
 
   const ChatState({
     this.allMessages = const [],
@@ -252,6 +259,8 @@ class ChatState extends Equatable {
       ];
 }
 
+// ───────────────────────────── Bloc ─────────────────────────────
+
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   final ChatRepository repo;
 
@@ -312,6 +321,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _msgSub = repo.messages(_cid).listen((snap) {
       final msgs = snap.docs.map(Msg.fromDoc).toList();
       add(_MessagesUpdated(msgs));
+      // Mark read whenever the stream emits, matching original behavior.
       repo.markRead(_cid, _peerUid);
     });
 
